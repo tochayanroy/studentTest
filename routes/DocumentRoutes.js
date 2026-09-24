@@ -445,6 +445,7 @@ router.get('/student/documents/:id/download', requireAuth, async (req, res) => {
 });
 
 // -------------------- GET DOCUMENTS BY TAB --------------------
+// -------------------- GET DOCUMENTS BY TAB --------------------
 router.get('/student/documents/tab/:tab', requireAuth, async (req, res) => {
     try {
         const { tab } = req.params;
@@ -464,7 +465,7 @@ router.get('/student/documents/tab/:tab', requireAuth, async (req, res) => {
 
         const documents = await Document.find(filter)
             .select('_id title description type fileName fileUrl isLocked category tab createdAt')
-            .sort({ createdAt: -1 });
+            .sort({ createdAt: 1 }); // ✅ FIXED: -1 → 1 (Oldest first)
 
         res.json({ count: documents.length, documents });
     } catch (error) {
