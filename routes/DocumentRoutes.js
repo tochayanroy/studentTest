@@ -46,9 +46,11 @@ router.get('/admin/documents', requireAuth, checkAdmin, async (req, res) => {
             filter.$or = [{ title: regex }, { description: regex }, { fileName: regex }];
         }
 
+        // ✅ CHANGED: createdAt: -1 → createdAt: 1
+        // Oldest document first, newest last
         const documents = await Document.find(filter)
             .populate('uploadedBy', 'Name email')
-            .sort({ createdAt: -1 });
+            .sort({ createdAt: 1 });
 
         res.json({ count: documents.length, documents });
     } catch (error) {
@@ -56,6 +58,8 @@ router.get('/admin/documents', requireAuth, checkAdmin, async (req, res) => {
         res.status(500).json({ error: 'Server error' });
     }
 });
+
+
 
 // -------------------- GET SINGLE DOCUMENT --------------------
 router.get('/admin/documents/:id', requireAuth, checkAdmin, async (req, res) => {
