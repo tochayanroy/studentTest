@@ -362,7 +362,7 @@ router.get('/student/documents', requireAuth, async (req, res) => {
 
         const documents = await Document.find(filter)
             .select('_id title description type fileName fileUrl isLocked category tab createdAt')
-            .sort({ createdAt: -1 });
+            .sort({ createdAt: 1 }); // ✅ Oldest first (sobar age add howa document sobar age)
 
         res.json({ count: documents.length, documents });
     } catch (error) {
@@ -370,6 +370,7 @@ router.get('/student/documents', requireAuth, async (req, res) => {
         res.status(500).json({ error: 'Server error' });
     }
 });
+
 
 // -------------------- GET SINGLE DOCUMENT --------------------
 router.get('/student/documents/:id', requireAuth, async (req, res) => {
