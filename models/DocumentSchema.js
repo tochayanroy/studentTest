@@ -30,6 +30,16 @@ const documentSchema = new mongoose.Schema(
             trim: true,
         },
 
+        filePublicId: { 
+            type: String, 
+            trim: true 
+        },
+        
+        fileResourceType: { 
+            type: String, 
+            default: "raw" 
+        },
+
         isLocked: {
             type: Boolean,
             default: false,

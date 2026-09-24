@@ -3,10 +3,11 @@ dotenv.config();
 
 const express = require('express');
 const passport = require('passport');
-const path = require('path');
 
 const app = express();
 
+
+require('./config/cloudinary');
 require('./config/Database');
 require('./middleware/passport-jwt');
 
@@ -17,9 +18,6 @@ const DocumentRoutes = require('./routes/DocumentRoutes');
 
 app.use(express.json());
 app.use(passport.initialize());
-
-// Serve uploaded profile images
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 app.use('/users', userRoutes);
 app.use('/exams', examRoutes);

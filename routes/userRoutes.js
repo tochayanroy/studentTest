@@ -1,39 +1,25 @@
+// routes/userRoutes.js
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
 const passport = require('passport');
 const jwt = require('jsonwebtoken');
-const fs = require('fs');
-const path = require('path');
 
 const User = require('../models/UserSchema.js');
 const Attempt = require('../models/AttemptSchema.js');
 const checkAdmin = require('../middleware/checkAdmin.js');
-const { uploadUserProfile, handleMulterError } = require('../middleware/multer.js');
+
+const {
+    uploadUserProfile,
+    handleMulterError,
+    uploadBufferToCloudinary,
+    deleteFromCloudinary,
+    extractPublicId,
+} = require('../middleware/cloudinaryUpload.js');
 
 const requireAuth = passport.authenticate('jwt', { session: false });
 
-const deleteImageFile = (imagePath) => {
-    if (!imagePath) return false;
-
-    try {
-        const filename = path.basename(imagePath);
-        const fullPath = path.join(__dirname, '../uploads/profiles/', filename);
-
-        if (fs.existsSync(fullPath)) {
-            fs.unlinkSync(fullPath);
-            return true;
-        }
-        return false;
-    } catch (error) {
-        console.error('Error deleting image file:', error);
-        return false;
-    }
-};
-
-
 ////////////////////////////// AUTH //////////////////////////////
-
 
 // ==================== REGISTER ====================
 router.post('/register', async (req, res) => {
@@ -43,7 +29,6 @@ router.post('/register', async (req, res) => {
         if (!name || !email || !password) {
             return res.status(400).json({ error: 'Name, email and password are required' });
         }
-
         if (String(password).length < 8) {
             return res.status(400).json({ error: 'Password must be at least 8 characters long' });
         }
@@ -56,8 +41,7 @@ router.post('/register', async (req, res) => {
             return res.status(400).json({ error: 'An account already exists with this email or phone' });
         }
 
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(password, salt);
+        const hashedPassword = await bcrypt.hash(password, 10);
 
         const user = new User({
             Name: name,
@@ -69,7 +53,6 @@ router.post('/register', async (req, res) => {
         await user.save();
 
         const token = jwt.sign(user.id, process.env.JWT_SECRET);
-
         const userResponse = user.toObject();
         delete userResponse.password;
 
@@ -94,48 +77,31 @@ router.post('/login', async (req, res) => {
         }
 
         const user = await User.findOne({ email: String(email).toLowerCase(), isActive: true });
-        if (!user) {
-            return res.status(401).json({ error: 'Invalid credentials' });
-        }
+        if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
-        if (user.isBlocked) {
-            return res.status(403).json({ error: 'Your account has been blocked' });
-        }
+        if (user.isBlocked) return res.status(403).json({ error: 'Your account has been blocked' });
 
         const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) {
-            return res.status(401).json({ error: 'Invalid credentials' });
-        }
+        if (!isMatch) return res.status(401).json({ error: 'Invalid credentials' });
 
         const token = jwt.sign(user.id, process.env.JWT_SECRET);
-
         const userResponse = user.toObject();
         delete userResponse.password;
 
-        res.json({
-            message: 'Login successful',
-            token,
-            user: userResponse,
-        });
+        res.json({ message: 'Login successful', token, user: userResponse });
     } catch (error) {
         console.error('Login error:', error);
         res.status(500).json({ error: 'Server error during login' });
     }
 });
 
-
 ////////////////////////////// PROFILE //////////////////////////////
-
 
 // ==================== GET MY PROFILE ====================
 router.get('/profile', requireAuth, async (req, res) => {
     try {
         const user = await User.findById(req.user._id).select('-password');
-
-        if (!user) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-
+        if (!user) return res.status(404).json({ error: 'User not found' });
         res.json(user);
     } catch (error) {
         console.error('Get profile error:', error);
@@ -147,7 +113,6 @@ router.get('/profile', requireAuth, async (req, res) => {
 router.put('/updateProfile', requireAuth, async (req, res) => {
     try {
         const { Name, phone } = req.body;
-
         const updateFields = {};
         if (Name) updateFields.Name = Name;
         if (phone) updateFields.phone = phone;
@@ -173,19 +138,15 @@ router.put('/changePassword', requireAuth, async (req, res) => {
         if (!currentPassword || !newPassword) {
             return res.status(400).json({ error: 'Current and new password are required' });
         }
-
         if (String(newPassword).length < 8) {
             return res.status(400).json({ error: 'New password must be at least 8 characters long' });
         }
 
         const user = await User.findById(req.user._id);
         const isMatch = await bcrypt.compare(currentPassword, user.password);
-        if (!isMatch) {
-            return res.status(401).json({ error: 'Current password is incorrect' });
-        }
+        if (!isMatch) return res.status(401).json({ error: 'Current password is incorrect' });
 
-        const salt = await bcrypt.genSalt(10);
-        user.password = await bcrypt.hash(newPassword, salt);
+        user.password = await bcrypt.hash(newPassword, 10);
         await user.save();
 
         res.json({ message: 'Password changed successfully' });
@@ -195,47 +156,57 @@ router.put('/changePassword', requireAuth, async (req, res) => {
     }
 });
 
-// ==================== UPLOAD PROFILE IMAGE ====================
-router.post('/uploadProfileImage', requireAuth, uploadUserProfile, handleMulterError, async (req, res) => {
-    try {
-        const user = await User.findById(req.user._id);
+// ==================== UPLOAD PROFILE IMAGE (CLOUDINARY) ====================
+router.post(
+    '/uploadProfileImage',
+    requireAuth,
+    uploadUserProfile,
+    handleMulterError,
+    async (req, res) => {
+        try {
+            if (!req.file) {
+                return res.status(400).json({ error: 'No image file uploaded' });
+            }
 
-        if (!user) {
-            if (req.file) deleteImageFile(req.file.filename);
-            return res.status(404).json({ error: 'User not found' });
+            const user = await User.findById(req.user._id);
+            if (!user) return res.status(404).json({ error: 'User not found' });
+
+            // Delete old image from Cloudinary
+            if (user.profileImagePublicId) {
+                await deleteFromCloudinary(user.profileImagePublicId, 'image');
+            }
+
+            // Upload new image to Cloudinary
+            const result = await uploadBufferToCloudinary(req.file.buffer, {
+                folder: 'exam-app/profiles',
+                resource_type: 'image',
+                transformation: [
+                    { width: 500, height: 500, crop: 'fill', gravity: 'face' },
+                    { quality: 'auto', fetch_format: 'auto' },
+                ],
+            });
+
+            user.profileImage = result.secure_url;
+            user.profileImagePublicId = result.public_id;
+            await user.save();
+
+            res.json({
+                message: 'Profile image updated successfully',
+                profileImage: user.profileImage,
+            });
+        } catch (error) {
+            console.error('Profile image upload error:', error);
+            res.status(500).json({ error: 'Server error while uploading profile image' });
         }
-
-        if (!req.file) {
-            return res.status(400).json({ error: 'No image file uploaded' });
-        }
-
-        if (user.profileImage) {
-            deleteImageFile(user.profileImage);
-        }
-
-        user.profileImage = req.file.filename;
-        await user.save();
-
-        res.json({
-            message: 'Profile image updated successfully',
-            profileImage: user.profileImage,
-        });
-    } catch (error) {
-        if (req.file) deleteImageFile(req.file.filename);
-        console.error('Profile image upload error:', error);
-        res.status(500).json({ error: 'Server error while uploading profile image' });
     }
-});
-
+);
 
 ////////////////////////////// ADMIN - STUDENT MANAGEMENT //////////////////////////////
-
 
 // ==================== LIST ALL STUDENTS ====================
 router.get('/students', requireAuth, checkAdmin, async (req, res) => {
     try {
         const { search, status } = req.query;
-
         const filter = { role: 'STUDENT' };
 
         if (status === 'BLOCKED') filter.isBlocked = true;
@@ -248,7 +219,6 @@ router.get('/students', requireAuth, checkAdmin, async (req, res) => {
 
         const students = await User.find(filter).select('-password').sort({ createdAt: -1 });
 
-        // Attach attempt counts so the admin list can show exam activity
         const counts = await Attempt.aggregate([
             { $group: { _id: '$student', attempts: { $sum: 1 } } },
         ]);
@@ -270,10 +240,7 @@ router.get('/students', requireAuth, checkAdmin, async (req, res) => {
 router.get('/students/:id', requireAuth, checkAdmin, async (req, res) => {
     try {
         const student = await User.findOne({ _id: req.params.id, role: 'STUDENT' }).select('-password');
-
-        if (!student) {
-            return res.status(404).json({ error: 'Student not found' });
-        }
+        if (!student) return res.status(404).json({ error: 'Student not found' });
 
         const attempts = await Attempt.find({ student: student._id })
             .populate('exam', 'title subject examCode scheduledAt')
@@ -290,13 +257,10 @@ router.get('/students/:id', requireAuth, checkAdmin, async (req, res) => {
 router.put('/students/:id/block', requireAuth, checkAdmin, async (req, res) => {
     try {
         const student = await User.findOne({ _id: req.params.id, role: 'STUDENT' });
+        if (!student) return res.status(404).json({ error: 'Student not found' });
 
-        if (!student) {
-            return res.status(404).json({ error: 'Student not found' });
-        }
-
-        // Explicit value if provided, otherwise toggle
-        student.isBlocked = typeof req.body.isBlocked === 'boolean' ? req.body.isBlocked : !student.isBlocked;
+        student.isBlocked =
+            typeof req.body.isBlocked === 'boolean' ? req.body.isBlocked : !student.isBlocked;
         await student.save();
 
         res.json({
@@ -313,16 +277,13 @@ router.put('/students/:id/block', requireAuth, checkAdmin, async (req, res) => {
 router.delete('/students/:id', requireAuth, checkAdmin, async (req, res) => {
     try {
         const student = await User.findOne({ _id: req.params.id, role: 'STUDENT' });
+        if (!student) return res.status(404).json({ error: 'Student not found' });
 
-        if (!student) {
-            return res.status(404).json({ error: 'Student not found' });
+        // Delete profile image from Cloudinary
+        if (student.profileImagePublicId) {
+            await deleteFromCloudinary(student.profileImagePublicId, 'image');
         }
 
-        if (student.profileImage) {
-            deleteImageFile(student.profileImage);
-        }
-
-        // Remove the exam history along with the account
         await Attempt.deleteMany({ student: student._id });
         await User.findByIdAndDelete(student._id);
 
