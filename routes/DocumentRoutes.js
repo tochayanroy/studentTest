@@ -134,7 +134,7 @@ router.post(
                 const result = await uploadBufferToCloudinary(req.file.buffer, {
                     folder: 'exam-app/documents',
                     resource_type: resourceType,
-                    public_id: `${Date.now()}-${req.file.originalname.replace(/\.[^/.]+$/, '')}`,
+                    public_id: `${Date.now()}-${req.file.originalname}`,
                     use_filename: true,
                     unique_filename: true,
                 });
@@ -222,7 +222,7 @@ router.put(
                 const result = await uploadBufferToCloudinary(req.file.buffer, {
                     folder: 'exam-app/documents',
                     resource_type: resourceType,
-                    public_id: `${Date.now()}-${req.file.originalname.replace(/\.[^/.]+$/, '')}`,
+                    public_id: `${Date.now()}-${req.file.originalname}`,
                     use_filename: true,
                     unique_filename: true,
                 });
